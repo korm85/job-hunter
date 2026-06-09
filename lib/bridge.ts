@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 const BRIDGE_TOKEN = process.env.LINKEDIN_BRIDGE_TOKEN;
 
 export function bridgeAvailable(): boolean {
-  return !!(process.env.LINKEDIN_BRIDGE_URL && BRIDGE_TOKEN);
+  return !!BRIDGE_TOKEN;
 }
 
 async function getBridgeUrl(): Promise<string> {
