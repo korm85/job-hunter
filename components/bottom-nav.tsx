@@ -24,7 +24,10 @@ export default function BottomNav() {
             href={href}
             className={`bottom-nav-item ${active ? "active" : ""}`}
           >
-            <Icon size={22} strokeWidth={active ? 2.2 : 1.8} />
+            {/* Material 3 active indicator pill */}
+            <span className="nav-indicator">
+              <Icon size={22} strokeWidth={active ? 2.2 : 1.8} />
+            </span>
             <span>{label}</span>
           </Link>
         );
