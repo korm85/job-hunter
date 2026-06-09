@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  title       String
+  company     String
+  location    String?
+  url         String?
+  description String?   @db.Text
+  domain      String?
+  source      String    @default("manual")
+  status      JobStatus @default(SAVED)
+  fitTier     String?
+  notes       String?   @db.Text
+  isGhostRisk Boolean   @default(false)
+  postedAt    DateTime?
+  appliedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  application   Application?
+  statusHistory StatusEvent[]
+}
+
+enum JobStatus {
+  SAVED
+  APPLIED
+  SCREENING
+  INTERVIEW
+  INTERVIEW_DONE
+  OFFER
+  REJECTED
+  GHOSTED
+  WITHDRAWN
+}
+
+model Application {
+  id              String    @id @default(cuid())
+  jobId           String    @unique
+  job             Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  fitAssessment   String?   @db.Text
+  tailoredCv      String?   @db.Text
+  coverLetter     String?   @db.Text
+  linkedinMessage String?   @db.Text
+  baseVariant     String?
+  generatedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model StatusEvent {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  from      String
+  to        String
+  note      String?
+  createdAt DateTime @default(now())
+}
+
+model SearchProfile {
+  id        String   @id @default(cuid())
+  name      String
+  keywords  String
+  location  String   @default("Israel")
+  domains   String   @default("")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
