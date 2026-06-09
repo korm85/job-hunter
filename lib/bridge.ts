@@ -1,12 +1,25 @@
-const BRIDGE_URL = process.env.LINKEDIN_BRIDGE_URL;
+import { prisma } from "@/lib/db";
+
 const BRIDGE_TOKEN = process.env.LINKEDIN_BRIDGE_TOKEN;
 
 export function bridgeAvailable(): boolean {
-  return !!(BRIDGE_URL && BRIDGE_TOKEN);
+  return !!(process.env.LINKEDIN_BRIDGE_URL && BRIDGE_TOKEN);
+}
+
+async function getBridgeUrl(): Promise<string> {
+  // Try DB first (auto-updated by NUC on tunnel restart)
+  try {
+    const cfg = await prisma.config.findUnique({ where: { key: "linkedin_bridge_url" } });
+    if (cfg?.value) return cfg.value;
+  } catch { /* fall through */ }
+  // Fallback to env var
+  if (process.env.LINKEDIN_BRIDGE_URL) return process.env.LINKEDIN_BRIDGE_URL;
+  throw new Error("Bridge URL not configured");
 }
 
 async function bridgeFetch(path: string, body: Record<string, unknown>) {
-  if (!BRIDGE_URL || !BRIDGE_TOKEN) throw new Error("Bridge not configured");
+  if (!BRIDGE_TOKEN) throw new Error("Bridge not configured");
+  const BRIDGE_URL = await getBridgeUrl();
   const res = await fetch(`${BRIDGE_URL}${path}`, {
     method: "POST",
     headers: {
@@ -91,9 +104,10 @@ export async function bridgeSearchPeople(
 }
 
 export async function bridgeHealthCheck(): Promise<boolean> {
-  if (!BRIDGE_URL || !BRIDGE_TOKEN) return false;
+  if (!BRIDGE_TOKEN) return false;
   try {
-    const res = await fetch(`${BRIDGE_URL}/health`, {
+    const url = await getBridgeUrl();
+    const res = await fetch(`${url}/health`, {
       signal: AbortSignal.timeout(5000),
     });
     return res.ok;

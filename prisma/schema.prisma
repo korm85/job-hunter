@@ -73,3 +73,9 @@ model SearchProfile {
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
 }
+
+model Config {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
