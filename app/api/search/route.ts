@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchJobs } from "@/lib/search";
-import { bridgeAvailable, bridgeSearchJobs, bridgeGetJobDetails } from "@/lib/bridge";
+import { bridgeAvailable, bridgeSearchJobs } from "@/lib/bridge";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     const keywords = body.keywords || "";
     const location = body.location || "Israel";
 
-    // LinkedIn bridge: richer results with full descriptions
+    // LinkedIn bridge: real-time LinkedIn results
     if (bridgeAvailable()) {
       try {
         const jobs = await bridgeSearchJobs(keywords, location, {
@@ -18,23 +18,16 @@ export async function POST(req: NextRequest) {
           experience_level: body.experience_level ?? null,
         });
 
-        // Fetch details for top 10 in parallel
-        const top = jobs.slice(0, 10);
-        const detailed = await Promise.all(
-          top.map(async (job) => {
-            const detail = job.job_id ? await bridgeGetJobDetails(job.job_id) : null;
-            return {
-              title: job.title || (detail as Record<string, unknown>)?.title || "",
-              company: job.company || (detail as Record<string, unknown>)?.company || "",
-              location: job.location || (detail as Record<string, unknown>)?.location || "",
-              url: job.url || "",
-              description: (detail as Record<string, unknown>)?.description as string || "",
-              source: "linkedin",
-            };
-          })
-        );
+        const results = jobs.map((job) => ({
+          title: job.title || "",
+          company: job.company || "",
+          location: job.location || "",
+          url: job.url || "",
+          description: job.description || "",
+          source: "linkedin",
+        }));
 
-        return NextResponse.json({ results: detailed, source: "linkedin" });
+        return NextResponse.json({ results, source: "linkedin" });
       } catch (e) {
         console.warn("LinkedIn bridge failed, falling back to Tavily:", e);
       }

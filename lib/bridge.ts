@@ -73,7 +73,24 @@ export async function bridgeSearchJobs(
   const text = result?.content?.[0]?.text ?? "";
   try {
     const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed : parsed.jobs ?? [];
+    // Response shape: { sections: { page_1: { jobs: [...] }, page_2: ... }, job_ids: [...] }
+    if (parsed.sections && typeof parsed.sections === "object") {
+      const rawJobs: Record<string, unknown>[] = [];
+      for (const page of Object.values(parsed.sections) as { jobs?: Record<string, unknown>[] }[]) {
+        if (Array.isArray(page.jobs)) rawJobs.push(...page.jobs);
+      }
+      return rawJobs.map((j) => ({
+        job_id: j.job_id as string,
+        title: j.title as string,
+        company: j.company as string,
+        location: (j.location as string) ?? "",
+        url: (j.job_url as string) ?? "",
+        description: j.description as string | undefined,
+      }));
+    }
+    // Fallback: flat array or { jobs: [] }
+    if (Array.isArray(parsed)) return parsed;
+    return parsed.jobs ?? [];
   } catch {
     return [];
   }
