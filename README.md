@@ -1,8 +1,8 @@
 # Job Hunter
 
-> Be first to apply — with a tailored resume and an insider contact.
+> First applicant. Tailored resume. Insider contact. A PM built this because the tool didn't exist.
 
-An AI-powered job search platform that monitors LinkedIn for fresh postings, generates role-specific resumes, and finds insider contacts at target companies — all from a mobile-friendly web app.
+The hiring manager reads the first application most carefully. This platform finds fresh LinkedIn postings before they're competitive, generates a role-specific resume and cover letter in one click, and surfaces an employee at the target company to message — so the application arrives first, reads best, and has a human already on the inside.
 
 ---
 
