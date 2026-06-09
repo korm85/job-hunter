@@ -7,12 +7,16 @@ interface Health {
   database: boolean;
   anthropicKey: boolean;
   tavilyKey: boolean;
+  linkedinBridge: boolean;
+  linkedinBridgeConfigured: boolean;
 }
 
 const ENV_DOCS = [
   { key: "DATABASE_URL", field: "database" as keyof Health, label: "Neon Postgres connection URL", example: "postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require" },
   { key: "ANTHROPIC_API_KEY", field: "anthropicKey" as keyof Health, label: "Anthropic API key (CV + scoring)", example: "sk-ant-..." },
-  { key: "TAVILY_API_KEY", field: "tavilyKey" as keyof Health, label: "Tavily API key (job search)", example: "tvly-..." },
+  { key: "TAVILY_API_KEY", field: "tavilyKey" as keyof Health, label: "Tavily API key (fallback search)", example: "tvly-..." },
+  { key: "LINKEDIN_BRIDGE_URL", field: "linkedinBridgeConfigured" as keyof Health, label: "LinkedIn bridge URL (NUC tunnel)", example: "https://xxx.trycloudflare.com" },
+  { key: "LINKEDIN_BRIDGE_TOKEN", field: null as unknown as keyof Health, label: "LinkedIn bridge auth token", example: "generated-secret-token" },
 ];
 
 function StatusIcon({ ok }: { ok: boolean }) {
@@ -54,7 +58,7 @@ export default function SettingsPage() {
               </div>
             )}
             {ENV_DOCS.map(({ key, field, label }) => {
-              const ok = health ? health[field] : false;
+              const ok = field && health ? !!health[field] : false;
               return (
                 <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <StatusIcon ok={ok} />
@@ -68,6 +72,19 @@ export default function SettingsPage() {
                 </div>
               );
             })}
+            {/* LinkedIn bridge live status */}
+            {health?.linkedinBridgeConfigured && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, paddingTop: 8, borderTop: "1px solid var(--border)" }}>
+                <StatusIcon ok={health.linkedinBridge} />
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontSize: 13, color: "var(--text)" }}>LinkedIn Bridge</span>
+                  <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>NUC live connection</div>
+                </div>
+                <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: health.linkedinBridge ? "var(--green)" : "var(--amber)" }}>
+                  {health.linkedinBridge ? "online" : "offline"}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1,0 +1,103 @@
+const BRIDGE_URL = process.env.LINKEDIN_BRIDGE_URL;
+const BRIDGE_TOKEN = process.env.LINKEDIN_BRIDGE_TOKEN;
+
+export function bridgeAvailable(): boolean {
+  return !!(BRIDGE_URL && BRIDGE_TOKEN);
+}
+
+async function bridgeFetch(path: string, body: Record<string, unknown>) {
+  if (!BRIDGE_URL || !BRIDGE_TOKEN) throw new Error("Bridge not configured");
+  const res = await fetch(`${BRIDGE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${BRIDGE_TOKEN}`,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) throw new Error(`Bridge error ${res.status}`);
+  return res.json();
+}
+
+export interface LinkedInJob {
+  job_id: string;
+  title: string;
+  company: string;
+  location: string;
+  url: string;
+  description?: string;
+}
+
+export interface LinkedInPerson {
+  name: string;
+  headline: string;
+  profile_url: string;
+  location?: string;
+}
+
+export async function bridgeSearchJobs(
+  keywords: string,
+  location = "Israel",
+  options: {
+    max_pages?: number;
+    date_posted?: string;
+    experience_level?: string;
+    work_type?: string;
+  } = {}
+): Promise<LinkedInJob[]> {
+  const result = await bridgeFetch("/jobs/search", {
+    keywords,
+    location,
+    max_pages: options.max_pages ?? 3,
+    date_posted: options.date_posted ?? "past_week",
+    experience_level: options.experience_level ?? null,
+    work_type: options.work_type ?? null,
+    sort_by: "date",
+  });
+
+  // MCP returns { content: [{ type: "text", text: "..." }] }
+  const text = result?.content?.[0]?.text ?? "";
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : parsed.jobs ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function bridgeGetJobDetails(jobId: string): Promise<Record<string, unknown> | null> {
+  try {
+    const result = await bridgeFetch("/jobs/details", { job_id: jobId });
+    const text = result?.content?.[0]?.text ?? "";
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+export async function bridgeSearchPeople(
+  keywords: string,
+  location = "Israel"
+): Promise<LinkedInPerson[]> {
+  const result = await bridgeFetch("/people/search", { keywords, location });
+  const text = result?.content?.[0]?.text ?? "";
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : parsed.people ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function bridgeHealthCheck(): Promise<boolean> {
+  if (!BRIDGE_URL || !BRIDGE_TOKEN) return false;
+  try {
+    const res = await fetch(`${BRIDGE_URL}/health`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
