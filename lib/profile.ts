@@ -175,4 +175,3 @@ export function selectBaseVariant(fitTier: string, domain: string): { variant: s
   // are structurally similar; general is the strongest starting point
   return { variant: "general", cv: BASE_CV_GENERAL };
 }
-`;
