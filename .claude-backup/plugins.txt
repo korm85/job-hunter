@@ -1,0 +1,7 @@
+caveman
+claude-plugins-official
+user
+frontend-design
+slack
+superpowers
+vercel
