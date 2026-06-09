@@ -60,11 +60,22 @@ dist/
 
 ### Step 3: Create GitHub remote if none exists
 
+Create a **public** repo using the GitHub API (no `gh` CLI required — use stored credentials or a token the user provides):
+
 ```bash
-gh repo create <repo-name> --private --source=. --remote=origin --push
+curl -X POST \
+  -H "Authorization: token <GITHUB_TOKEN>" \
+  -H "Content-Type: application/json" \
+  https://api.github.com/user/repos \
+  -d '{"name":"<repo-name>","private":false,"description":"<one-line project description>"}'
 ```
 
-Use the current directory name as repo name. If remote already exists, skip this step.
+Then add the remote using SSH (personal projects always use SSH to avoid credential leakage):
+```bash
+git remote add origin git@github.com:<username>/<repo-name>.git
+```
+
+If remote already exists, skip. If repo already exists on GitHub, just ensure remote is set.
 
 ### Step 4: Gather Claude Code context
 
@@ -108,7 +119,39 @@ Write `.claude-backup/infrastructure.md` describing what external services this 
 - PM2 processes and their purpose
 This is written in plain English so an AI agent understands the full picture.
 
-### Step 5: Write RESTORE.md
+### Step 5: Write README.md
+
+Write or overwrite `README.md` at the project root. This is the public face of the repo — someone landing on GitHub must immediately understand what it is and why it exists. Structure:
+
+```markdown
+# <Project Name>
+
+> <One-line value proposition — what problem does it solve for the user>
+
+<2-3 sentence description of what the project does>
+
+## What it does
+<ASCII flow diagram showing the user journey / data flow>
+
+## Stack
+<Table: Layer | Tech>
+
+## Architecture
+<ASCII diagram showing how components connect — cloud, home server, external services>
+
+## Key features
+<Bullet list of the 4-6 most impressive capabilities>
+
+## Restoring this setup
+<One paragraph pointing to RESTORE.md and .claude-backup/>
+
+## Environment variables
+<Table of required vars with one-line descriptions>
+```
+
+Make the README visual using ASCII diagrams. No Lorem Ipsum filler. Every section must reflect the actual project.
+
+### Step 6: Write RESTORE.md
 
 Create `RESTORE.md` at the project root. This is the AI agent's master guide. It must be complete enough that a fresh agent on a fresh machine can rebuild everything. Structure:
 
