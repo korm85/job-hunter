@@ -5,6 +5,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export interface FitAssessment {
   recommendation: "Strong Fit" | "Viable" | "Off-Lane";
+  score: number; // 0-100 match score
   strengths: string[];
   genuineGaps: string[];
   keywordGaps: string[];
@@ -38,11 +39,14 @@ export async function generateFitAssessment(
 Assess Michael's fit for this role. Return ONLY valid JSON matching this schema:
 {
   "recommendation": "Strong Fit" | "Viable" | "Off-Lane",
+  "score": <integer 0-100 where 100 = perfect match for Michael's exact background>,
   "strengths": ["...", "..."],
   "genuineGaps": ["..."],
   "keywordGaps": ["..."],
   "summary": "2-3 sentence executive summary of fit"
 }
+
+Score guide: 85-100 = core domain match (LPBF/AM/CV/IIoT + PM), 60-84 = strong adjacent, 40-59 = viable with gaps, <40 = off-lane.
 
 Job: ${jobTitle} at ${company}
 Domain: ${domain}

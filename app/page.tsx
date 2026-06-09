@@ -1,199 +1,276 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { StatusBadge } from "@/components/status-badge";
-import { formatDate, daysSince } from "@/lib/utils";
-import { AlertTriangle, Search, TrendingUp, CheckCircle } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Search, RefreshCw, Plus, Check } from "lucide-react";
+import { JobCard, type JobCardData } from "@/components/job-card";
 
-interface StatsData {
-  byStatus: Record<string, number>;
-  ghostRiskCount: number;
-  recentJobs: {
-    id: string;
-    title: string;
-    company: string;
-    status: string;
-    fitTier: string | null;
-    domain: string | null;
-    isGhostRisk: boolean;
-    createdAt: string;
-    appliedAt: string | null;
-  }[];
+interface SearchResult {
+  title: string;
+  company: string;
+  location: string;
+  url: string;
+  description: string;
+  source: string;
 }
 
-const PIPELINE_STAGES = [
-  { status: "SAVED",     label: "Saved",     color: "var(--text-muted)" },
-  { status: "APPLIED",   label: "Applied",   color: "var(--accent)" },
-  { status: "SCREENING", label: "Screening", color: "var(--cyan)" },
-  { status: "INTERVIEW", label: "Interview", color: "var(--purple)" },
-  { status: "OFFER",     label: "Offer",     color: "var(--green)" },
-];
+interface JobWithScore extends JobCardData {
+  fitScore?: number;
+  application?: { fitAssessment: string | null } | null;
+}
 
-export default function DashboardPage() {
-  const [data, setData] = useState<StatsData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function extractScore(job: JobWithScore): number {
+  try {
+    if (!job.application?.fitAssessment) return -1;
+    const parsed = JSON.parse(job.application.fitAssessment);
+    return parsed.score ?? -1;
+  } catch { return -1; }
+}
 
-  useEffect(() => {
-    fetch("/api/stats")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) setError(d.error);
-        else setData(d);
-      })
-      .catch(() => setError("Failed to load stats"));
+export default function DiscoverPage() {
+  const [jobs, setJobs] = useState<JobWithScore[]>([]);
+  const [dbLoading, setDbLoading] = useState(true);
+  const [keywords, setKeywords] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [saved, setSaved] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState<Set<number>>(new Set());
+  const [assessing, setAssessing] = useState<Set<string>>(new Set());
+  const [dbError, setDbError] = useState(false);
+  const [stats, setStats] = useState({ queue: 0, applied: 0 });
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      const r = await fetch("/api/jobs?status=SAVED");
+      const d = await r.json();
+      if (!d.error) {
+        const mapped: JobWithScore[] = d.map((j: Record<string, unknown>) => ({
+          ...j,
+          hasApplication: !!(j.application && (j.application as Record<string, unknown>).tailoredCv),
+          application: j.application as { fitAssessment: string | null } | null,
+        }));
+        // Sort: scored jobs by score desc, unscored at end
+        mapped.sort((a, b) => {
+          const sa = extractScore(a);
+          const sb = extractScore(b);
+          if (sa === -1 && sb === -1) return 0;
+          if (sa === -1) return 1;
+          if (sb === -1) return -1;
+          return sb - sa;
+        });
+        setJobs(mapped);
+      } else {
+        setDbError(true);
+      }
+    } catch {
+      setDbError(true);
+    } finally {
+      setDbLoading(false);
+    }
   }, []);
 
-  const totalActive =
-    (data?.byStatus["APPLIED"] || 0) +
-    (data?.byStatus["SCREENING"] || 0) +
-    (data?.byStatus["INTERVIEW"] || 0);
+  const fetchStats = useCallback(async () => {
+    try {
+      const r = await fetch("/api/stats");
+      const d = await r.json();
+      if (!d.error) setStats({ queue: d.byStatus?.SAVED || 0, applied: d.byStatus?.APPLIED || 0 });
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => {
+    fetchJobs();
+    fetchStats();
+  }, [fetchJobs, fetchStats]);
+
+  async function handleSearch() {
+    if (!keywords.trim()) return;
+    setSearching(true);
+    setSearchResults([]);
+    try {
+      const r = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords: keywords.trim(), location: "Israel", domains: [] }),
+      });
+      const d = await r.json();
+      if (!d.error) setSearchResults(d.results || []);
+    } catch { /* silent */ }
+    finally { setSearching(false); }
+  }
+
+  async function handleSaveResult(result: SearchResult, idx: number) {
+    setSaving((s) => new Set(s).add(idx));
+    try {
+      const r = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: result.title,
+          company: result.company,
+          location: result.location,
+          url: result.url,
+          description: result.description,
+          source: result.source,
+        }),
+      });
+      const d = await r.json();
+      if (!d.error) {
+        setSaved((s) => new Set(s).add(idx));
+        // Auto-assess in background
+        triggerAssess(d.id);
+        fetchJobs();
+        fetchStats();
+      }
+    } finally {
+      setSaving((s) => { const n = new Set(s); n.delete(idx); return n; });
+    }
+  }
+
+  async function triggerAssess(jobId: string) {
+    setAssessing((a) => new Set(a).add(jobId));
+    try {
+      await fetch(`/api/jobs/${jobId}/assess`, { method: "POST" });
+      await fetchJobs();
+    } finally {
+      setAssessing((a) => { const n = new Set(a); n.delete(jobId); return n; });
+    }
+  }
+
+  async function handleDismiss(id: string) {
+    await fetch(`/api/jobs/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "WITHDRAWN" }),
+    });
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+    fetchStats();
+  }
+
+  // Separate jobs: scored (shown sorted) vs unscored (being assessed)
+  const scoredJobs = jobs.filter((j) => extractScore(j) >= 0);
+  const unscoredJobs = jobs.filter((j) => extractScore(j) < 0);
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>Dashboard</h1>
-          <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-            {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-          </p>
+      <div className="page-header">
+        <h1>Discover</h1>
+        {!dbError && <p>{stats.queue} in queue · {stats.applied} applied</p>}
+      </div>
+
+      {dbError && (
+        <div className="banner banner-warning">
+          Database not connected. <a href="/settings" style={{ color: "inherit", fontWeight: 600 }}>Set up →</a>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <Link href="/search" className="btn btn-primary">
-            <Search size={14} />
-            Find Jobs
-          </Link>
-          <Link href="/pipeline" className="btn btn-ghost">
-            View Pipeline
-          </Link>
+      )}
+
+      {/* Search */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={keywords}
+            onChange={(e) => setKeywords(e.target.value)}
+            placeholder="Search job boards…"
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            style={{ flex: 1 }}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={handleSearch}
+            disabled={searching || !keywords.trim()}
+            style={{ flexShrink: 0, minWidth: 52, padding: "12px 16px" }}
+          >
+            {searching
+              ? <RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} />
+              : <Search size={16} />}
+          </button>
         </div>
       </div>
 
-      {/* DB error / setup notice */}
-      {error && (
-        <div style={{ background: "var(--amber-dim)", border: "1px solid var(--amber)", borderRadius: 8, padding: "14px 18px", marginBottom: 24, color: "var(--amber)" }}>
-          <strong>Database not connected.</strong> Add DATABASE_URL, DIRECT_URL, ANTHROPIC_API_KEY, and TAVILY_API_KEY to your environment.{" "}
-          <Link href="/settings" style={{ color: "var(--amber)", textDecoration: "underline" }}>Go to Settings</Link>
-        </div>
-      )}
-
-      {/* Ghost risk alert */}
-      {data && data.ghostRiskCount > 0 && (
-        <div
-          style={{
-            background: "var(--amber-dim)",
-            border: "1px solid var(--amber)",
-            borderRadius: 8,
-            padding: "12px 18px",
-            marginBottom: 24,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            color: "var(--amber)",
-          }}
-        >
-          <AlertTriangle size={16} />
-          <span style={{ fontSize: 13 }}>
-            <strong>{data.ghostRiskCount} Ghost Risk</strong> — applications with no update in 21+ days.{" "}
-            <Link href="/pipeline?filter=ghost" style={{ color: "var(--amber)", textDecoration: "underline" }}>
-              Review now
-            </Link>
-          </span>
-        </div>
-      )}
-
-      {/* Pipeline stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 28 }}>
-        {PIPELINE_STAGES.map(({ status, label, color }) => (
-          <Link key={status} href={`/pipeline?status=${status}`} style={{ textDecoration: "none" }}>
-            <div className="stat-block" style={{ cursor: "pointer" }}>
-              <div className="stat-value" style={{ color }}>
-                {data?.byStatus[status] || 0}
+      {/* Search results */}
+      {searchResults.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="section-title">{searchResults.length} Results</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {searchResults.map((r, i) => (
+              <div key={i} className="job-card">
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: "var(--surface2)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, color: "var(--text-muted)", flexShrink: 0 }}>
+                    {r.company.charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 15, color: "var(--text)" }}>{r.title}</div>
+                    <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{r.company}{r.location && ` · ${r.location}`}</div>
+                  </div>
+                </div>
+                {r.description && (
+                  <p style={{ fontSize: 13, color: "var(--text-faint)", marginBottom: 10, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                    {r.description}
+                  </p>
+                )}
+                <button
+                  className={`btn btn-sm btn-full ${saved.has(i) ? "btn-ghost" : "btn-primary"}`}
+                  onClick={() => !saved.has(i) && handleSaveResult(r, i)}
+                  disabled={saved.has(i) || saving.has(i)}
+                >
+                  {saved.has(i)
+                    ? <><Check size={14} /> Saved — scoring match…</>
+                    : saving.has(i) ? "Saving…"
+                    : <><Plus size={14} /> Save & Score</>}
+                </button>
               </div>
-              <div className="stat-label">{label}</div>
-            </div>
-          </Link>
-        ))}
-      </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {/* Secondary stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 32 }}>
-        <div className="card" style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <TrendingUp size={24} color="var(--purple)" />
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--purple)" }}>{totalActive}</div>
-            <div className="stat-label">Active in flight</div>
+      {/* Scored jobs (sorted by match) */}
+      {!dbError && !dbLoading && scoredJobs.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div className="section-title">Queue — by match score</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {scoredJobs.map((job) => {
+              const score = extractScore(job);
+              return (
+                <div key={job.id} style={{ position: "relative" }}>
+                  {/* Score badge */}
+                  <div style={{
+                    position: "absolute", top: 14, right: 14, zIndex: 1,
+                    fontSize: 13, fontWeight: 700,
+                    color: score >= 75 ? "var(--green)" : score >= 50 ? "var(--amber)" : "var(--text-faint)",
+                  }}>
+                    {score}
+                  </div>
+                  <JobCard job={job} mode="discover" onDismiss={handleDismiss} />
+                </div>
+              );
+            })}
           </div>
         </div>
-        <div className="card" style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <CheckCircle size={24} color="var(--green)" />
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--green)" }}>{data?.byStatus["OFFER"] || 0}</div>
-            <div className="stat-label">Offers</div>
-          </div>
-        </div>
-        <div className="card" style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <AlertTriangle size={24} color="var(--amber)" />
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--amber)" }}>{data?.ghostRiskCount || 0}</div>
-            <div className="stat-label">Ghost risks</div>
-          </div>
-        </div>
-      </div>
+      )}
 
-      {/* Recent jobs */}
-      <div>
-        <div className="section-title">Recent Activity</div>
-        {!data ? (
-          <div style={{ color: "var(--text-muted)", padding: "20px 0", fontSize: 13 }}>
-            {error ? "Connect a database to start tracking." : "Loading..."}
+      {/* Unscored / being assessed */}
+      {!dbError && unscoredJobs.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div className="section-title">Scoring match…</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {unscoredJobs.map((job) => (
+              <div key={job.id} style={{ opacity: 0.6 }}>
+                <JobCard job={job} mode="discover" onDismiss={handleDismiss} />
+              </div>
+            ))}
           </div>
-        ) : data.recentJobs.length === 0 ? (
-          <div style={{ color: "var(--text-muted)", padding: "24px 0", fontSize: 13 }}>
-            No jobs tracked yet.{" "}
-            <Link href="/search" style={{ color: "var(--accent)" }}>Search for roles →</Link>
-          </div>
-        ) : (
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Role</th>
-                  <th>Company</th>
-                  <th>Domain</th>
-                  <th>Status</th>
-                  <th>Fit</th>
-                  <th>Added</th>
-                  <th>Days</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.recentJobs.map((job) => (
-                  <tr key={job.id} className={job.isGhostRisk ? "ghost-risk" : ""}>
-                    <td>
-                      <Link href={`/jobs/${job.id}`} style={{ color: "var(--text)", fontWeight: 500, textDecoration: "none" }}>
-                        {job.title}
-                      </Link>
-                      {job.isGhostRisk && (
-                        <span style={{ marginLeft: 8, fontSize: 11, color: "var(--amber)" }}>
-                          ⚠ Ghost Risk
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ color: "var(--text-muted)" }}>{job.company}</td>
-                    <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{job.domain || "—"}</td>
-                    <td><StatusBadge status={job.status} small /></td>
-                    <td>{job.fitTier ? <StatusBadge status={job.fitTier} type="fit" small /> : <span style={{ color: "var(--text-faint)" }}>—</span>}</td>
-                    <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{formatDate(job.createdAt)}</td>
-                    <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{daysSince(job.createdAt)}d</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {!dbError && !dbLoading && jobs.length === 0 && searchResults.length === 0 && (
+        <div className="empty-state">
+          <h3>Nothing in queue</h3>
+          <p>Search above to find fresh roles. Save → match score runs automatically.</p>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }
