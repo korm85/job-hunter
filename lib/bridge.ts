@@ -27,7 +27,7 @@ async function bridgeFetch(path: string, body: Record<string, unknown>) {
       Authorization: `Bearer ${BRIDGE_TOKEN}`,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(60000),
   });
   if (!res.ok) throw new Error(`Bridge error ${res.status}`);
   return res.json();

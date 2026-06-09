@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     if (bridgeAvailable()) {
       try {
         const jobs = await bridgeSearchJobs(keywords, location, {
-          max_pages: body.max_pages ?? 2,
+          max_pages: body.max_pages ?? 1,
           date_posted: body.date_posted ?? "past_week",
           work_type: body.work_type ?? null,
           experience_level: body.experience_level ?? null,
